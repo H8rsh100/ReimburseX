@@ -2,8 +2,18 @@ import { useState } from "react";
 import api from "../utils/api";
 
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const COLORS  = { "The Leak": "#ef4444", "The Bottleneck": "#f59e0b", "The Strategy": "#6366f1" };
-const ICONS   = { "The Leak": "🕳️", "The Bottleneck": "⏱️", "The Strategy": "🎯" };
+const COLORS = { "The Leak": "#ef4444", "The Bottleneck": "#f59e0b", "The Strategy": "#6366f1" };
+const ICONS = { "The Leak": "🕳️", "The Bottleneck": "⏱️", "The Strategy": "🎯" };
+
+function extractJsonObject(rawText) {
+  const text = (rawText || "").replace(/```json|```/g, "").trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error("AI returned an invalid response format");
+  }
+  return JSON.parse(text.slice(start, end + 1));
+}
 
 export default function WardenAI({ companyName, currency }) {
   const [scanning, setScanning] = useState(false);
@@ -11,11 +21,16 @@ export default function WardenAI({ companyName, currency }) {
   const [error, setError] = useState("");
 
   const runScan = async () => {
+    if (!GEMINI_KEY) {
+      setError("Missing VITE_GEMINI_API_KEY in frontend/.env");
+      return;
+    }
+
     setScanning(true); setError(""); setInsights(null);
     try {
       const res = await api.get("/expenses/all");
       const raw = (res.data.expenses || []).slice(0, 50);
-      const expenseJSON = JSON.stringify(raw.map(e => ({
+      const expenseJSON = JSON.stringify(raw.map((e) => ({
         employee: e.employee_name,
         category: e.category,
         amount: parseFloat(e.converted_amount || e.amount),
@@ -69,10 +84,9 @@ Perform a "Deep Scan" and return EXACTLY this JSON (no markdown, no backticks, r
         throw new Error(msg);
       }
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      const parsed = extractJsonObject(text);
       setInsights(parsed.insights);
     } catch (err) {
-      console.error(err);
       setError(`Scan failed — ${err.message}`);
     } finally {
       setScanning(false);
