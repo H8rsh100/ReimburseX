@@ -4,6 +4,30 @@ import api from "../utils/api";
 
 const CATEGORIES = ["Travel", "Food & Dining", "Accommodation", "Office Supplies", "Client Entertainment", "Training", "Medical", "Other"];
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
+const OCR_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+// Retry up to 2 times for 429 rate-limit
+async function ocrRequest(body, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetch(OCR_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 429 && attempt < retries) {
+      await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+      continue;
+    }
+    if (!res.ok) {
+      throw new Error(
+        res.status === 429
+          ? "Gemini rate limit reached — please wait ~30 seconds and try again."
+          : `Gemini API error (${res.status})`
+      );
+    }
+    return res.json();
+  }
+}
 
 export default function ExpenseForm() {
   const navigate = useNavigate();
@@ -59,27 +83,17 @@ export default function ExpenseForm() {
         r.readAsDataURL(file);
       });
 
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { inline_data: { mime_type: file.type, data: base64 } },
-                { text: `Extract expense details from this receipt. Respond ONLY with raw JSON:\n{\n  "amount": <number>,\n  "currency": "<3-letter ISO code>",\n  "description": "<e.g. Dinner at Taj>",\n  "category": "<one of: Travel, Food & Dining, Accommodation, Office Supplies, Client Entertainment, Training, Medical, Other>",\n  "expense_date": "<YYYY-MM-DD>"\n}` }
-              ]
-            }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 512 }
-          })
-        }
-      );
+      const data = await ocrRequest({
+        contents: [{
+          parts: [
+            { inline_data: { mime_type: file.type, data: base64 } },
+            { text: `Extract expense details from this receipt. Respond ONLY with raw JSON:\n{\n  "amount": <number>,\n  "currency": "<3-letter ISO code>",\n  "description": "<e.g. Dinner at Taj>",\n  "category": "<one of: Travel, Food & Dining, Accommodation, Office Supplies, Client Entertainment, Training, Medical, Other>",\n  "expense_date": "<YYYY-MM-DD>"\n}` }
+          ]
+        }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 512 }
+      });
 
-      if (!response.ok) throw new Error("Gemini API error");
-
-      const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const text  = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
       const clean = text.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean);
 
@@ -93,7 +107,7 @@ export default function ExpenseForm() {
       }));
     } catch (err) {
       console.error("OCR failed:", err);
-      setOcrError("Could not read receipt automatically. Please fill in fields manually.");
+      setOcrError(err.message || "Could not read receipt. Fill in fields manually.");
     } finally {
       setOcrLoading(false);
     }

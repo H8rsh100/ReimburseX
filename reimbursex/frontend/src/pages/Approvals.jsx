@@ -4,6 +4,23 @@ import api from "../utils/api";
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
+// Retry with back-off on 429
+async function geminiRequest(body, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetch(GEMINI_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 429 && attempt < retries) {
+      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+      continue;
+    }
+    if (!res.ok) throw new Error(res.status === 429 ? "Rate limit — wait 30 s and try again." : `Gemini ${res.status}`);
+    return res.json();
+  }
+}
+
 const STATUS_COLORS = { approved:"#22c55e", rejected:"#ef4444", pending:"#f59e0b" };
 
 /* ── Pure JS canvas confetti ────────────── */
@@ -85,23 +102,18 @@ Expense details:
 
 Return only the rejection reason sentence.`;
 
-      const res = await fetch(GEMINI_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.4, maxOutputTokens: 80 },
-        }),
+      const data = await geminiRequest({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.4, maxOutputTokens: 80 },
       });
-
-      if (!res.ok) throw new Error("Gemini error");
-      const data = await res.json();
       const suggestion = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
       if (suggestion) {
         setComment(c => ({ ...c, [a.approval_action_id]: suggestion }));
       }
     } catch (err) {
       console.error("AI suggest failed:", err);
+      // Show error as a temporary comment so user knows what happened
+      setComment(c => ({ ...c, [a.approval_action_id]: err.message || "AI unavailable. Type manually." }));
     } finally {
       setAiSuggesting(null);
     }

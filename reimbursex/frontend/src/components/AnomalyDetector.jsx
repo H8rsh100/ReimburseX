@@ -3,6 +3,28 @@ import { useState, useCallback } from "react";
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
+// Retry up to 2 times with exponential back-off for 429 rate-limit errors
+async function geminiRequest(body, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetch(GEMINI_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 429 && attempt < retries) {
+      await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+      continue;
+    }
+    if (!res.ok) {
+      const errText = res.status === 429
+        ? "Rate limit reached. Wait ~30 s and try again."
+        : `Gemini error ${res.status}`;
+      throw new Error(errText);
+    }
+    return res.json();
+  }
+}
+
 const SEV_CONFIG = {
   high:   { color: "#ef4444", bg: "rgba(239,68,68,0.10)",   icon: "🚨", label: "High Risk" },
   medium: { color: "#f59e0b", bg: "rgba(245,158,11,0.10)",  icon: "⚠️", label: "Warning"   },
@@ -72,25 +94,17 @@ ${JSON.stringify(slim)}
 `.trim();
 
     try {
-      const res = await fetch(GEMINI_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.2, maxOutputTokens: 1024 },
-        }),
+      const data = await geminiRequest({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 1024 },
       });
-
-      if (!res.ok) throw new Error(`Gemini error ${res.status}`);
-
-      const data = await res.json();
-      const raw  = data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+      const raw   = data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
       const clean = raw.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean);
       setAnomalies(Array.isArray(parsed) ? parsed : []);
     } catch (err) {
       console.error("Anomaly analysis failed:", err);
-      setError("AI analysis failed. Try again.");
+      setError(err.message || "AI analysis failed. Try again.");
     } finally {
       setLoading(false);
     }
