@@ -12,6 +12,8 @@ reimbursex/
 └── frontend/         ← React + Vite SPA
 ```
 
+Project overview and architecture notes are available in `about.md`.
+
 ---
 
 ## Quick Start
@@ -30,9 +32,8 @@ SOURCE backend/db/schema.sql;
 cd backend
 npm install
 
-# Copy and fill in your values:
-cp .env.example .env
-# Edit .env with your MySQL credentials and a JWT secret
+# Create backend/.env from backend/.env.example and fill your values.
+# Required keys: PORT, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, JWT_SECRET.
 
 npm run dev
 # Runs on http://localhost:5000
@@ -44,9 +45,9 @@ npm run dev
 cd frontend
 npm install
 
-# Create frontend/.env:
-echo "VITE_API_URL=http://localhost:5000/api" > .env
-echo "VITE_GEMINI_API_KEY=your_gemini_key_here" >> .env
+# Create frontend/.env with:
+# VITE_API_URL=http://localhost:5000/api
+# VITE_GEMINI_API_KEY=your_gemini_key_here
 
 npm run dev
 # Runs on http://localhost:5173
