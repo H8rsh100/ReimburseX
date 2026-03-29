@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import api from "../utils/api";
 
 const STATUS_COLORS = {
@@ -12,18 +13,47 @@ const STATUS_COLORS = {
 const POLICY_LIMIT = 10000; // ⚠️ Flag expenses above this (company currency)
 
 export default function Expenses() {
+  const { user } = useAuth();
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
+  const [actionLoading, setActionLoading] = useState(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    api.get("/expenses").then(r => {
+  const fetchExpenses = async () => {
+    setLoading(true);
+    try {
+      const endpoint = user?.role === "admin" ? "/expenses/all" : "/expenses";
+      const r = await api.get(endpoint);
       setExpenses(r.data.expenses || []);
-    }).catch(console.error).finally(() => setLoading(false));
-  }, []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchExpenses();
+  }, [user]);
 
   const filtered = filter === "all" ? expenses : expenses.filter(e => e.status === filter);
+
+  const handleAdminOverride = async (expenseId, newStatus) => {
+    if (!window.confirm(`Are you sure you want to ${newStatus} this expense?`)) return;
+    const comment = window.prompt("Optional override comment:", "") || "";
+
+    setActionLoading(expenseId + newStatus);
+    try {
+      await api.post(`/expenses/${expenseId}/override`, { status: newStatus, comment });
+      await fetchExpenses();
+    } catch (err) {
+      alert(err.response?.data?.message || "Override failed.");
+      console.error(err);
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   const exportCSV = () => {
     const header = ["Description","Category","Amount","Currency","Date","Status","Comment"];
@@ -80,6 +110,7 @@ export default function Expenses() {
                 <th>Date</th>
                 <th>Status</th>
                 <th>Comment</th>
+                {user?.role === "admin" && <th>Override</th>}
               </tr>
             </thead>
             <tbody>
@@ -107,6 +138,24 @@ export default function Expenses() {
                     </span>
                   </td>
                   <td style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>{exp.rejection_comment || "—"}</td>
+                  {user?.role === "admin" && (
+                    <td style={{ display: "flex", gap: "0.4rem" }}>
+                      <button
+                        className="btn btn-success btn-sm"
+                        disabled={actionLoading === exp.id + "approved" || exp.status === "approved"}
+                        onClick={() => handleAdminOverride(exp.id, "approved")}
+                      >
+                        {actionLoading === exp.id + "approved" ? "..." : "Approve"}
+                      </button>
+                      <button
+                        className="btn btn-danger btn-sm"
+                        disabled={actionLoading === exp.id + "rejected" || exp.status === "rejected"}
+                        onClick={() => handleAdminOverride(exp.id, "rejected")}
+                      >
+                        {actionLoading === exp.id + "rejected" ? "..." : "Reject"}
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
