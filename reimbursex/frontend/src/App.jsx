@@ -6,6 +6,7 @@ import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
 import Expenses from "./pages/Expenses";
 import ExpenseForm from "./pages/ExpenseForm";
+import AdminExpenseReview from "./pages/AdminExpenseReview";
 import Approvals from "./pages/Approvals";
 import Users from "./pages/Users";
 import Rules from "./pages/Rules";
@@ -30,6 +31,7 @@ export default function App() {
           <Route path="expenses" element={<PrivateRoute roles={["employee","admin"]}><Expenses /></PrivateRoute>} />
           <Route path="expenses/new" element={<PrivateRoute roles={["employee","admin"]}><ExpenseForm /></PrivateRoute>} />
           <Route path="approvals" element={<PrivateRoute roles={["manager","admin"]}><Approvals /></PrivateRoute>} />
+          <Route path="admin/expenses" element={<PrivateRoute roles={["admin"]}><AdminExpenseReview /></PrivateRoute>} />
           <Route path="users" element={<PrivateRoute roles={["admin"]}><Users /></PrivateRoute>} />
           <Route path="rules" element={<PrivateRoute roles={["admin"]}><Rules /></PrivateRoute>} />
         </Route>

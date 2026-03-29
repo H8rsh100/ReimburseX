@@ -57,15 +57,28 @@ async function createApprovalActions(conn, expense, rule, employeeManagerId) {
     }));
   }
 
-  // Only create the FIRST step as pending; rest created as subsequent steps are reached
-  if (allSteps.length > 0) {
-    const first = allSteps[0];
-    if (first.approver_id) {
-      await conn.query(
-        `INSERT INTO approval_actions (expense_id, rule_id, approver_id, step_number, status)
-         VALUES (?, ?, ?, ?, 'pending')`,
-        [expense.id, rule.id, first.approver_id, first.step_number]
-      );
+  // For percentage rules, create ALL steps as pending upfront
+  if (rule.rule_type === "percentage" || rule.rule_type === "hybrid") {
+    for (const step of allSteps) {
+      if (step.approver_id) {
+        await conn.query(
+          `INSERT INTO approval_actions (expense_id, rule_id, approver_id, step_number, status)
+           VALUES (?, ?, ?, ?, 'pending')`,
+          [expense.id, rule.id, step.approver_id, step.step_number]
+        );
+      }
+    }
+  } else {
+    // For sequential, only create the first step
+    if (allSteps.length > 0) {
+      const first = allSteps[0];
+      if (first.approver_id) {
+        await conn.query(
+          `INSERT INTO approval_actions (expense_id, rule_id, approver_id, step_number, status)
+           VALUES (?, ?, ?, ?, 'pending')`,
+          [expense.id, rule.id, first.approver_id, first.step_number]
+        );
+      }
     }
   }
 }
@@ -140,8 +153,17 @@ router.post("/", requireRole("employee", "admin"), async (req, res) => {
     // Find matching approval rule
     const rule = await findMatchingRule(req.user.company_id, convertedAmount);
 
-    // Create approval actions
-    await createApprovalActions(conn, { id: expenseId }, rule, managerIdOfEmployee);
+    // If no rule and employee has manager, enforce manager-first approval as default
+    if (!rule && managerIdOfEmployee) {
+      await conn.query(
+        `INSERT INTO approval_actions (expense_id, rule_id, approver_id, step_number, status)
+         VALUES (?, NULL, ?, 1, 'pending')`,
+        [expenseId, managerIdOfEmployee]
+      );
+    } else {
+      // Create approval actions
+      await createApprovalActions(conn, { id: expenseId }, rule, managerIdOfEmployee);
+    }
 
     await conn.commit();
     res.status(201).json({ message: "Expense submitted", id: expenseId });
@@ -151,6 +173,87 @@ router.post("/", requireRole("employee", "admin"), async (req, res) => {
     res.status(500).json({ message: "Failed to submit expense" });
   } finally {
     conn.release();
+  }
+});
+
+// POST /api/expenses/:id/override — admin override status
+router.post('/:id/override', requireRole('admin'), async (req, res) => {
+  const expenseId = req.params.id;
+  const { status, comment } = req.body;
+
+  if (!['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ message: "Status must be 'approved' or 'rejected'" });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [rows] = await conn.query(
+      'SELECT id, company_id FROM expenses WHERE id = ? AND company_id = ?',
+      [expenseId, req.user.company_id]
+    );
+    if (rows.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ message: 'Expense not found' });
+    }
+
+    await conn.query(
+      'UPDATE expenses SET status = ?, rejection_comment = ? WHERE id = ?',
+      [status, status === 'rejected' ? comment || null : null, expenseId]
+    );
+
+    await conn.query(
+      "UPDATE approval_actions SET status = ?, comment = CONCAT('ADMIN OVERRIDE: ', COALESCE(?, '')), acted_at = NOW() WHERE expense_id = ? AND status = 'pending'",
+      [status, comment || null, expenseId]
+    );
+
+    // record override action in audit trail
+    await conn.query(
+      `INSERT INTO approval_actions (expense_id, rule_id, approver_id, step_number, status, comment, acted_at)
+       VALUES (?, NULL, ?, 0, ?, ?, NOW())`,
+      [expenseId, req.user.id, status, `ADMIN OVERRIDE: ${comment || ''}`.trim()]
+    );
+
+    await conn.commit();
+    res.json({ message: `Expense ${status} via admin override` });
+  } catch (err) {
+    await conn.rollback();
+    console.error(err);
+    res.status(500).json({ message: 'Failed to override expense status' });
+  } finally {
+    conn.release();
+  }
+});
+
+// GET /api/expenses/:id/audit — admin expense audit trail
+router.get('/:id/audit', requireRole('admin'), async (req, res) => {
+  const expenseId = req.params.id;
+
+  try {
+    const [expenseRows] = await pool.query(
+      `SELECT e.*, u.name AS employee_name, u.email AS employee_email, c.currency AS company_currency
+       FROM expenses e
+       JOIN users u ON e.employee_id = u.id
+       JOIN companies c ON e.company_id = c.id
+       WHERE e.id = ? AND e.company_id = ?`,
+      [expenseId, req.user.company_id]
+    );
+    if (expenseRows.length === 0) return res.status(404).json({ message: 'Expense not found' });
+
+    const [actions] = await pool.query(
+      `SELECT aa.*, u.name AS approver_name, u.role AS approver_role
+       FROM approval_actions aa
+       LEFT JOIN users u ON aa.approver_id = u.id
+       WHERE aa.expense_id = ?
+       ORDER BY aa.acted_at ASC, aa.created_at ASC`,
+      [expenseId]
+    );
+
+    res.json({ expense: expenseRows[0], audit: actions });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to fetch audit trail' });
   }
 });
 

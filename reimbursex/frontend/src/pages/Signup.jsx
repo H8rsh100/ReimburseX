@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import api from "../utils/api";
@@ -19,8 +19,42 @@ export default function Signup() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Derive currency from country
+  useEffect(() => {
+    if (form.country) {
+      fetch(`https://restcountries.com/v3.1/name/${encodeURIComponent(form.country)}?fields=currencies`)
+        .then(r => r.json())
+        .then(data => {
+          if (data[0]?.currencies) {
+            const currencyCode = Object.keys(data[0].currencies)[0];
+            setForm(f => ({ ...f, currency: currencyCode || "USD" }));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [form.country]);
+
   const handleChange = (e) =>
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (form.password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await api.post("/auth/signup", form);
+      login(res.data.token, res.data.user);
+      navigate("/dashboard");
+    } catch (err) {
+      setError(err.response?.data?.message || "Signup failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();

@@ -51,6 +51,7 @@ export default function Sidebar() {
   const navItems = [
     { to: "/dashboard", label: "Dashboard", icon: "dashboard", roles: ["admin","manager","employee"] },
     { to: "/expenses", label: "My Expenses", icon: "expenses", roles: ["employee","admin"] },
+    { to: "/admin/expenses", label: "Admin Review", icon: "expenses", roles: ["admin"] },
     { to: "/approvals", label: "Approvals", icon: "approvals", roles: ["manager","admin"] },
     { to: "/users", label: "Users", icon: "users", roles: ["admin"] },
     { to: "/rules", label: "Approval Rules", icon: "rules", roles: ["admin"] },
