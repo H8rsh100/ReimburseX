@@ -5,7 +5,62 @@ import api from "../utils/api";
 const CATEGORIES = ["Travel", "Food & Dining", "Accommodation", "Office Supplies", "Client Entertainment", "Training", "Medical", "Other"];
 
 // 🔑 Set your key in frontend/.env as VITE_GEMINI_API_KEY
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "YOUR_GEMINI_API_KEY_HERE";
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+const GEMINI_MODEL = "gemini-3-flash-preview";
+const GEMINI_FALLBACK_MODEL = "gemini-2.0-flash";
+
+function extractFirstJsonObject(rawText) {
+  const text = (rawText || "").replace(/```json|```/g, "").trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error("AI returned invalid JSON");
+  }
+  return JSON.parse(text.slice(start, end + 1));
+}
+
+async function runGeminiVision(base64, mimeType) {
+  if (!GEMINI_API_KEY) {
+    throw new Error("Missing VITE_GEMINI_API_KEY");
+  }
+
+  const models = [GEMINI_MODEL, GEMINI_FALLBACK_MODEL];
+  let lastError = "Gemini API error";
+
+  for (const model of models) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { inline_data: { mime_type: mimeType || "image/jpeg", data: base64 } },
+              { text: `Extract expense details from this receipt. Respond ONLY with raw JSON, no markdown or backticks:\n{\n  "amount": <number>,\n  "currency": "<3-letter ISO code e.g. INR>",\n  "description": "<e.g. Dinner at Taj Hotel>",\n  "category": "<one of: Travel, Food & Dining, Accommodation, Office Supplies, Client Entertainment, Training, Medical, Other>",\n  "expense_date": "<YYYY-MM-DD>"\n}` }
+            ]
+          }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 512 }
+        })
+      }
+    );
+
+    if (response.ok) {
+      return response.json();
+    }
+
+    const errData = await response.json();
+    const msg = errData.error?.message || "Gemini API error";
+    const canFallback = model === GEMINI_MODEL && (response.status === 404 || response.status === 429 || response.status === 403);
+    if (canFallback) {
+      lastError = msg;
+      continue;
+    }
+    throw new Error(msg);
+  }
+
+  throw new Error(lastError);
+}
 
 export default function ExpenseForm() {
   const navigate = useNavigate();
@@ -52,32 +107,9 @@ export default function ExpenseForm() {
         r.readAsDataURL(file);
       });
 
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { inline_data: { mime_type: file.type || "image/jpeg", data: base64 } },
-                { text: `Extract expense details from this receipt. Respond ONLY with raw JSON, no markdown or backticks:\n{\n  "amount": <number>,\n  "currency": "<3-letter ISO code e.g. INR>",\n  "description": "<e.g. Dinner at Taj Hotel>",\n  "category": "<one of: Travel, Food & Dining, Accommodation, Office Supplies, Client Entertainment, Training, Medical, Other>",\n  "expense_date": "<YYYY-MM-DD>"\n}` }
-              ]
-            }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 512 }
-          })
-        }
-      );
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error?.message || "Gemini API error");
-      }
-
-      const data = await response.json();
+      const data = await runGeminiVision(base64, file.type);
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      const clean = text.replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(clean);
+      const parsed = extractFirstJsonObject(text);
 
       setForm(f => ({
         ...f,
@@ -89,7 +121,13 @@ export default function ExpenseForm() {
       }));
     } catch (err) {
       console.error("OCR failed:", err);
-      setOcrError("Could not read receipt automatically. Please fill in fields manually.");
+      if ((err.message || "").includes("reported as leaked")) {
+        setOcrError("Gemini API key is invalid/leaked. Update VITE_GEMINI_API_KEY in frontend/.env.");
+      } else if ((err.message || "").toLowerCase().includes("quota") || (err.message || "").includes("RESOURCE_EXHAUSTED")) {
+        setOcrError("Gemini quota exceeded for image model. Please check billing/quota, then retry.");
+      } else {
+        setOcrError("Could not read receipt automatically. Please fill in fields manually.");
+      }
     } finally {
       setOcrLoading(false);
     }

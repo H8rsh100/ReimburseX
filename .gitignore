@@ -1,0 +1,20 @@
+# Local MySQL runtime data
+mysql-data/
+
+# Optional local DB dumps/backups
+*.sql
+*.sql.gz
+
+# Secrets and local environment files
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Common generated artifacts
+**/node_modules/
+**/dist/
