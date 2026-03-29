@@ -1,6 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
 import api from "../utils/api";
 
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+
 const STATUS_COLORS = { approved:"#22c55e", rejected:"#ef4444", pending:"#f59e0b" };
 
 /* ── Pure JS canvas confetti ────────────── */
@@ -61,6 +64,48 @@ export default function Approvals() {
   const [comment, setComment]     = useState({});
   const [acting, setActing]       = useState(null);
   const [msg, setMsg]             = useState("");
+  const [aiSuggesting, setAiSuggesting] = useState(null); // holds approval_action_id while loading
+
+  // ── AI: suggest a rejection reason for a given expense ──────────
+  const suggestRejection = useCallback(async (a) => {
+    if (!GEMINI_API_KEY) {
+      setComment(c => ({ ...c, [a.approval_action_id]: "Insufficient documentation provided." }));
+      return;
+    }
+    setAiSuggesting(a.approval_action_id);
+    try {
+      const prompt = `You are a corporate finance manager reviewing an expense claim. Write ONE concise, professional rejection reason (max 20 words) specific to this expense. Be direct and factual — no preamble, no quotes.
+
+Expense details:
+- Employee: ${a.employee_name}
+- Category: ${a.category}
+- Amount: ${a.company_currency} ${parseFloat(a.converted_amount || a.amount).toFixed(2)}
+- Description: ${a.description}
+- Date: ${a.expense_date?.slice(0,10)}
+
+Return only the rejection reason sentence.`;
+
+      const res = await fetch(GEMINI_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.4, maxOutputTokens: 80 },
+        }),
+      });
+
+      if (!res.ok) throw new Error("Gemini error");
+      const data = await res.json();
+      const suggestion = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+      if (suggestion) {
+        setComment(c => ({ ...c, [a.approval_action_id]: suggestion }));
+      }
+    } catch (err) {
+      console.error("AI suggest failed:", err);
+    } finally {
+      setAiSuggesting(null);
+    }
+  }, []);
 
   const fetchApprovals = useCallback(() => {
     api.get("/approvals/pending").then(r => {
@@ -171,13 +216,61 @@ export default function Approvals() {
                   </a>
                 )}
 
-                <div className="form-group">
-                  <input
-                    className="form-input"
-                    placeholder="Add a comment (optional)..."
-                    value={comment[a.approval_action_id] || ""}
-                    onChange={e => setComment(c => ({ ...c, [a.approval_action_id]: e.target.value }))}
-                  />
+                <div className="form-group" style={{ position: "relative" }}>
+                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
+                    <input
+                      className="form-input"
+                      placeholder="Add a comment (optional)..."
+                      value={comment[a.approval_action_id] || ""}
+                      onChange={e => setComment(c => ({ ...c, [a.approval_action_id]: e.target.value }))}
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      title="AI-suggest a rejection reason"
+                      disabled={aiSuggesting === a.approval_action_id}
+                      onClick={() => suggestRejection(a)}
+                      style={{
+                        flexShrink: 0,
+                        padding: "0.55rem 0.8rem",
+                        background: aiSuggesting === a.approval_action_id
+                          ? "var(--surface)"
+                          : "linear-gradient(135deg,#6366f1,#a78bfa)",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: "var(--radius)",
+                        cursor: aiSuggesting === a.approval_action_id ? "not-allowed" : "pointer",
+                        fontSize: "0.78rem",
+                        fontWeight: 600,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.35rem",
+                        whiteSpace: "nowrap",
+                        transition: "all 0.2s ease",
+                        boxShadow: "0 2px 8px rgba(99,102,241,0.35)",
+                      }}
+                    >
+                      {aiSuggesting === a.approval_action_id ? (
+                        <>
+                          <span className="spinner" style={{ width:12, height:12, border:"2px solid #ffffff44", borderTopColor:"#fff" }}/>
+                          Thinking…
+                        </>
+                      ) : (
+                        <>✦ AI Suggest</>
+                      )}
+                    </button>
+                  </div>
+                  {comment[a.approval_action_id] && (
+                    <div style={{
+                      marginTop: "0.4rem",
+                      fontSize: "0.72rem",
+                      color: "var(--text-muted)",
+                      fontStyle: "italic",
+                      paddingLeft: "0.25rem"
+                    }}>
+                      ✦ AI-generated · edit freely before rejecting
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display:"flex", gap:"0.75rem", marginTop:"0.75rem" }}>

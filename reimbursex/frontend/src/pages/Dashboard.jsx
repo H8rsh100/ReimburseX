@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import api from "../utils/api";
 import SmartInsights from "../components/SmartInsights";
+import AnomalyDetector from "../components/AnomalyDetector";
 
 const CHART_COLORS = ["#6366f1","#22c55e","#f59e0b","#ef4444","#ec4899","#06b6d4"];
 const STATUS_COLORS = { approved:"#22c55e", rejected:"#ef4444", pending:"#f59e0b", draft:"#6b7280" };
@@ -215,6 +216,14 @@ export default function Dashboard() {
         <SmartInsights
           expenses={expenses}
           approvals={approvals}
+          currency={user?.company_currency || user?.currency || "INR"}
+        />
+      )}
+
+      {/* AI Anomaly Detector — admin only */}
+      {user?.role==="admin" && (
+        <AnomalyDetector
+          expenses={expenses}
           currency={user?.company_currency || user?.currency || "INR"}
         />
       )}
