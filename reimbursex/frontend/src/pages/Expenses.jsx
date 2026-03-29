@@ -9,6 +9,8 @@ const STATUS_COLORS = {
   draft: "#6b7280",
 };
 
+const POLICY_LIMIT = 10000; // ⚠️ Flag expenses above this (company currency)
+
 export default function Expenses() {
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -23,6 +25,21 @@ export default function Expenses() {
 
   const filtered = filter === "all" ? expenses : expenses.filter(e => e.status === filter);
 
+  const exportCSV = () => {
+    const header = ["Description","Category","Amount","Currency","Date","Status","Comment"];
+    const rows = filtered.map(e => [
+      `"${(e.description||"").replace(/"/g,'""')}"`,
+      e.category, e.amount, e.currency,
+      e.expense_date, e.status, e.rejection_comment||""
+    ]);
+    const csv = [header,...rows].map(r=>r.join(",")).join("\n");
+    const a = Object.assign(document.createElement("a"),{
+      href: URL.createObjectURL(new Blob([csv],{type:"text/csv"})),
+      download: `expenses_${new Date().toISOString().split("T")[0]}.csv`
+    });
+    a.click();
+  };
+
   return (
     <div className="page">
       <div className="page-header">
@@ -30,7 +47,10 @@ export default function Expenses() {
           <h1 className="page-title">My Expenses</h1>
           <p className="page-subtitle">Submit and track your reimbursement claims</p>
         </div>
-        <button className="btn btn-primary" onClick={() => navigate("/expenses/new")}>+ New Expense</button>
+        <div style={{ display:"flex", gap:"0.75rem" }}>
+          <button className="btn btn-secondary" onClick={exportCSV}>⬇ Export CSV</button>
+          <button className="btn btn-primary" onClick={() => navigate("/expenses/new")}>+ New Expense</button>
+        </div>
       </div>
 
       <div className="filter-tabs">
@@ -64,8 +84,13 @@ export default function Expenses() {
             </thead>
             <tbody>
               {filtered.map(exp => (
-                <tr key={exp.id}>
-                  <td>{exp.description}</td>
+                <tr key={exp.id} style={parseFloat(exp.converted_amount||exp.amount)>POLICY_LIMIT?{background:"rgba(245,158,11,0.04)"}:{}}>
+                  <td>
+                    {parseFloat(exp.converted_amount||exp.amount)>POLICY_LIMIT&&(
+                      <span title="High value — exceeds policy limit" style={{marginRight:"0.4rem",cursor:"help"}}>⚠️</span>
+                    )}
+                    {exp.description}
+                  </td>
                   <td><span className="badge">{exp.category}</span></td>
                   <td>
                     <div>{exp.currency} {parseFloat(exp.amount).toFixed(2)}</div>
