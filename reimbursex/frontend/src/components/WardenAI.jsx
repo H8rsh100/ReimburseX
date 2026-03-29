@@ -53,7 +53,7 @@ Perform a "Deep Scan" and return EXACTLY this JSON (no markdown, no backticks, r
 }`;
 
       const gemRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -64,12 +64,16 @@ Perform a "Deep Scan" and return EXACTLY this JSON (no markdown, no backticks, r
         }
       );
       const data = await gemRes.json();
+      if (!gemRes.ok) {
+        const msg = data.error?.message || JSON.stringify(data.error) || "Gemini API error";
+        throw new Error(msg);
+      }
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
       const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
       setInsights(parsed.insights);
     } catch (err) {
       console.error(err);
-      setError("Scan failed — check your Gemini API key or try again.");
+      setError(`Scan failed — ${err.message}`);
     } finally {
       setScanning(false);
     }
