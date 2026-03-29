@@ -75,16 +75,16 @@ export default function Expenses() {
   const filtered = filter === "all" ? expenses : expenses.filter(e => e.status === filter);
 
   const exportCSV = () => {
-    const header = ["Description","Category","Amount","Currency","Converted","Company Currency","Date","Status","Comment"];
+    const header = ["Description", "Category", "Amount", "Currency", "Converted", "Company Currency", "Date", "Status", "Comment"];
     const rows = filtered.map(e => [
-      `"${(e.description||"").replace(/"/g,'""')}"`,
+      `"${(e.description || "").replace(/"/g, '""')}"`,
       e.category, e.amount, e.currency,
       e.converted_amount || e.amount, e.company_currency || "",
-      e.expense_date, e.status, e.rejection_comment||""
+      e.expense_date, e.status, e.rejection_comment || ""
     ]);
-    const csv = [header,...rows].map(r=>r.join(",")).join("\n");
+    const csv = [header, ...rows].map(r => r.join(",")).join("\n");
     const a = Object.assign(document.createElement("a"), {
-      href: URL.createObjectURL(new Blob([csv], { type:"text/csv" })),
+      href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })),
       download: `expenses_${new Date().toISOString().split("T")[0]}.csv`
     });
     a.click();
@@ -101,7 +101,7 @@ export default function Expenses() {
           <h1 className="page-title">My Expenses</h1>
           <p className="page-subtitle">Submit and track your reimbursement claims</p>
         </div>
-        <div style={{ display:"flex", gap:"0.6rem", flexWrap:"wrap" }}>
+        <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
           <button className="btn btn-secondary" onClick={exportCSV} title="Download as CSV">
             ⬇ CSV
           </button>
@@ -115,7 +115,7 @@ export default function Expenses() {
       </div>
 
       <div className="filter-tabs">
-        {["all","pending","approved","rejected"].map(f => (
+        {["all", "pending", "approved", "rejected"].map(f => (
           <button
             key={f}
             className={`filter-tab ${filter === f ? "active" : ""}`}
@@ -123,7 +123,7 @@ export default function Expenses() {
           >
             {f.charAt(0).toUpperCase() + f.slice(1)}
             {f !== "all" && (
-              <span style={{ marginLeft:"0.35rem", opacity:0.7, fontSize:"0.75rem" }}>
+              <span style={{ marginLeft: "0.35rem", opacity: 0.7, fontSize: "0.75rem" }}>
                 ({expenses.filter(e => e.status === f).length})
               </span>
             )}
@@ -132,7 +132,7 @@ export default function Expenses() {
       </div>
 
       {loading ? (
-        <div className="page-loading"><div className="spinner"/></div>
+        <div className="page-loading"><div className="spinner" /></div>
       ) : filtered.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">📭</div>
@@ -156,29 +156,29 @@ export default function Expenses() {
             </thead>
             <tbody>
               {filtered.map(exp => (
-                <tr key={exp.id} style={parseFloat(exp.converted_amount||exp.amount)>POLICY_LIMIT?{background:"rgba(245,158,11,0.04)"}:{}}>
+                <tr key={exp.id} style={parseFloat(exp.converted_amount || exp.amount) > POLICY_LIMIT ? { background: "rgba(245,158,11,0.04)" } : {}}>
                   <td>
-                    {parseFloat(exp.converted_amount||exp.amount)>POLICY_LIMIT&&(
-                      <span title="Exceeds policy limit" style={{marginRight:"0.4rem",cursor:"help"}}>⚠️</span>
+                    {parseFloat(exp.converted_amount || exp.amount) > POLICY_LIMIT && (
+                      <span title="Exceeds policy limit" style={{ marginRight: "0.4rem", cursor: "help" }}>⚠️</span>
                     )}
                     {exp.description}
                   </td>
                   <td><span className="badge">{exp.category}</span></td>
                   <td>
-                    <div style={{ fontWeight:600 }}>{exp.currency} {parseFloat(exp.amount).toFixed(2)}</div>
+                    <div style={{ fontWeight: 600 }}>{exp.currency} {parseFloat(exp.amount).toFixed(2)}</div>
                     {exp.converted_amount && exp.currency !== exp.company_currency && (
-                      <div style={{ fontSize:"0.73rem", color:"var(--text-muted)" }}>
+                      <div style={{ fontSize: "0.73rem", color: "var(--text-muted)" }}>
                         ≈ {exp.company_currency} {parseFloat(exp.converted_amount).toFixed(2)}
                       </div>
                     )}
                   </td>
                   <td>{new Date(exp.expense_date).toLocaleDateString()}</td>
                   <td>
-                    <span className="status-badge" style={{ background:STATUS_COLORS[exp.status]+"22", color:STATUS_COLORS[exp.status] }}>
+                    <span className="status-badge" style={{ background: STATUS_COLORS[exp.status] + "22", color: STATUS_COLORS[exp.status] }}>
                       {exp.status}
                     </span>
                   </td>
-                  <td style={{ color:"var(--text-muted)", fontSize:"0.83rem" }}>{exp.rejection_comment || "—"}</td>
+                  <td style={{ color: "var(--text-muted)", fontSize: "0.83rem" }}>{exp.rejection_comment || "—"}</td>
                 </tr>
               ))}
             </tbody>
