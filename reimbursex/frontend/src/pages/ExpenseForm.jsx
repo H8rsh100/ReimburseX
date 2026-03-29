@@ -3,9 +3,7 @@ import { useNavigate } from "react-router-dom";
 import api from "../utils/api";
 
 const CATEGORIES = ["Travel", "Food & Dining", "Accommodation", "Office Supplies", "Client Entertainment", "Training", "Medical", "Other"];
-
-// 🔑 Set your key in frontend/.env as VITE_GEMINI_API_KEY
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "YOUR_GEMINI_API_KEY_HERE";
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 
 export default function ExpenseForm() {
   const navigate = useNavigate();
@@ -15,11 +13,12 @@ export default function ExpenseForm() {
     description: "", expense_date: new Date().toISOString().split("T")[0], receipt_url: "",
   });
   const [currencies, setCurrencies] = useState(["USD","EUR","GBP","INR","JPY","AUD","CAD"]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]       = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [ocrError, setOcrError] = useState("");
+  const [error, setError]           = useState("");
+  const [ocrError, setOcrError]     = useState("");
   const [receiptPreview, setReceiptPreview] = useState(null);
+  const [dragOver, setDragOver]     = useState(false);
 
   useEffect(() => {
     fetch("https://restcountries.com/v3.1/all?fields=name,currencies")
@@ -33,13 +32,21 @@ export default function ExpenseForm() {
 
   const handleChange = e => setForm(f => ({ ...f, [e.target.name]: e.target.value }));
 
-  const handleReceiptUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const processFile = async (file) => {
+    if (!file || !file.type.startsWith("image/")) {
+      setOcrError("Please upload an image file.");
+      return;
+    }
 
-    const reader = new FileReader();
-    reader.onload = ev => setReceiptPreview(ev.target.result);
-    reader.readAsDataURL(file);
+    // Preview
+    const previewReader = new FileReader();
+    previewReader.onload = ev => setReceiptPreview(ev.target.result);
+    previewReader.readAsDataURL(file);
+
+    if (!GEMINI_API_KEY) {
+      setOcrError("No Gemini API key set (VITE_GEMINI_API_KEY). Please fill fields manually.");
+      return;
+    }
 
     setOcrLoading(true);
     setOcrError("");
@@ -60,8 +67,8 @@ export default function ExpenseForm() {
           body: JSON.stringify({
             contents: [{
               parts: [
-                { inline_data: { mime_type: file.type || "image/jpeg", data: base64 } },
-                { text: `Extract expense details from this receipt. Respond ONLY with raw JSON, no markdown or backticks:\n{\n  "amount": <number>,\n  "currency": "<3-letter ISO code e.g. INR>",\n  "description": "<e.g. Dinner at Taj Hotel>",\n  "category": "<one of: Travel, Food & Dining, Accommodation, Office Supplies, Client Entertainment, Training, Medical, Other>",\n  "expense_date": "<YYYY-MM-DD>"\n}` }
+                { inline_data: { mime_type: file.type, data: base64 } },
+                { text: `Extract expense details from this receipt. Respond ONLY with raw JSON:\n{\n  "amount": <number>,\n  "currency": "<3-letter ISO code>",\n  "description": "<e.g. Dinner at Taj>",\n  "category": "<one of: Travel, Food & Dining, Accommodation, Office Supplies, Client Entertainment, Training, Medical, Other>",\n  "expense_date": "<YYYY-MM-DD>"\n}` }
               ]
             }],
             generationConfig: { temperature: 0.1, maxOutputTokens: 512 }
@@ -69,10 +76,7 @@ export default function ExpenseForm() {
         }
       );
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error?.message || "Gemini API error");
-      }
+      if (!response.ok) throw new Error("Gemini API error");
 
       const data = await response.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
@@ -81,11 +85,11 @@ export default function ExpenseForm() {
 
       setForm(f => ({
         ...f,
-        amount: parsed.amount != null ? String(parsed.amount) : f.amount,
-        currency: parsed.currency || f.currency,
-        description: parsed.description || f.description,
-        category: parsed.category || f.category,
-        expense_date: parsed.expense_date || f.expense_date,
+        amount:       parsed.amount       != null  ? String(parsed.amount)  : f.amount,
+        currency:     parsed.currency              || f.currency,
+        description:  parsed.description           || f.description,
+        category:     parsed.category              || f.category,
+        expense_date: parsed.expense_date          || f.expense_date,
       }));
     } catch (err) {
       console.error("OCR failed:", err);
@@ -93,6 +97,15 @@ export default function ExpenseForm() {
     } finally {
       setOcrLoading(false);
     }
+  };
+
+  const handleFileInput = (e) => { processFile(e.target.files[0]); };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    processFile(file);
   };
 
   const handleSubmit = async e => {
@@ -120,18 +133,19 @@ export default function ExpenseForm() {
         <button className="btn btn-ghost" onClick={() => navigate("/expenses")}>← Back</button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: "1.5rem" }}>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 340px", gap:"1.5rem" }}>
+        {/* ── Form ── */}
         <div className="card">
-          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1.2rem" }}>
-            {error && <div className="alert alert-error">{error}</div>}
+          <form onSubmit={handleSubmit} style={{ display:"flex", flexDirection:"column", gap:"1.2rem" }}>
+            {error && <div className="alert alert-error">⚠️ {error}</div>}
 
             <div className="form-row">
-              <div className="form-group" style={{ flex: 2 }}>
+              <div className="form-group" style={{ flex:2 }}>
                 <label className="form-label">Amount *</label>
                 <input className="form-input" name="amount" type="number" step="0.01" min="0"
                   value={form.amount} onChange={handleChange} placeholder="0.00" required />
               </div>
-              <div className="form-group" style={{ flex: 1 }}>
+              <div className="form-group" style={{ flex:1 }}>
                 <label className="form-label">Currency *</label>
                 <select className="form-input" name="currency" value={form.currency} onChange={handleChange}>
                   {currencies.map(c => <option key={c} value={c}>{c}</option>)}
@@ -164,51 +178,68 @@ export default function ExpenseForm() {
                 value={form.receipt_url} onChange={handleChange} placeholder="https://..." />
             </div>
 
-            <div style={{ display: "flex", gap: "1rem", marginTop: "0.5rem" }}>
-              <button type="submit" className="btn btn-primary" disabled={loading} style={{ flex: 1 }}>
-                {loading ? "Submitting..." : "Submit Expense"}
+            <div style={{ display:"flex", gap:"1rem", marginTop:"0.5rem" }}>
+              <button type="submit" className="btn btn-primary" disabled={loading} style={{ flex:1 }}>
+                {loading ? "Submitting..." : "💸 Submit Expense"}
               </button>
               <button type="button" className="btn btn-ghost" onClick={() => navigate("/expenses")}>Cancel</button>
             </div>
           </form>
         </div>
 
-        <div className="card">
-          <h3 style={{ marginBottom: "0.5rem", color: "var(--text-primary)" }}>📷 Scan Receipt (Gemini AI)</h3>
-          <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginBottom: "1rem", lineHeight: 1.5 }}>
-            Upload a receipt photo and Gemini Vision will auto-fill all expense fields instantly.
-          </p>
+        {/* ── Receipt Scanner ── */}
+        <div className="card" style={{ display:"flex", flexDirection:"column" }}>
+          <div style={{ marginBottom:"0.75rem" }}>
+            <h3 style={{ color:"var(--text-primary)", fontSize:"0.95rem", fontWeight:700, marginBottom:"0.3rem" }}>
+              📷 Scan Receipt
+            </h3>
+            <p style={{ fontSize:"0.8rem", color:"var(--text-muted)", lineHeight:1.5 }}>
+              Drop or upload a receipt and Gemini Vision auto-fills all fields.
+            </p>
+          </div>
 
-          <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleReceiptUpload} />
+          {/* Drag & Drop Zone */}
+          <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handleFileInput} />
 
-          <button
-            className="btn btn-secondary"
-            style={{ width: "100%", justifyContent: "center" }}
-            onClick={() => { setOcrError(""); fileRef.current.click(); }}
-            disabled={ocrLoading}
+          <div
+            className={`receipt-drop-zone ${dragOver ? "drag-over" : ""} ${ocrLoading ? "scanning-border" : ""}`}
+            onClick={() => { if (!ocrLoading) { setOcrError(""); fileRef.current.click(); } }}
+            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+            style={{ flex:1, minHeight:120 }}
           >
-            {ocrLoading ? "🔍 Reading receipt..." : "📂 Upload Receipt"}
-          </button>
+            {ocrLoading ? (
+              <>
+                <span className="drop-icon">🔍</span>
+                <div className="drop-label">Reading your receipt...</div>
+                <div className="spinner" style={{ marginTop:"0.75rem" }}/>
+              </>
+            ) : (
+              <>
+                <span className="drop-icon">{dragOver ? "📥" : "📂"}</span>
+                <div className="drop-label">
+                  Drop image here or <span>click to browse</span>
+                </div>
+                <div style={{ fontSize:"0.72rem", color:"var(--text-muted)", marginTop:"0.4rem" }}>
+                  JPG, PNG, WEBP supported
+                </div>
+              </>
+            )}
+          </div>
 
           {ocrError && (
-            <div className="alert alert-error" style={{ marginTop: "0.75rem", fontSize: "0.8rem" }}>{ocrError}</div>
-          )}
-
-          {ocrLoading && (
-            <div style={{ textAlign: "center", marginTop: "1.5rem" }}>
-              <div className="spinner" />
-              <p style={{ marginTop: "0.75rem", fontSize: "0.82rem", color: "var(--text-muted)" }}>
-                Gemini is reading your receipt...
-              </p>
-            </div>
+            <div className="alert alert-error" style={{ marginTop:"0.75rem", fontSize:"0.8rem" }}>{ocrError}</div>
           )}
 
           {receiptPreview && !ocrLoading && (
-            <div style={{ marginTop: "1rem" }}>
-              <img src={receiptPreview} alt="Receipt" style={{ width: "100%", borderRadius: "8px", border: "1px solid var(--border)" }} />
-              <p style={{ marginTop: "0.5rem", fontSize: "0.75rem", color: "var(--success)", textAlign: "center" }}>
-                ✅ Fields auto-filled from receipt
-              </p>
+            <div style={{ marginTop:"1rem" }}>
+              <img src={receiptPreview} alt="Receipt" style={{ width:"100%", borderRadius:"10px", border:"1px solid var(--border)" }} />
+              {!ocrError && (
+                <p style={{ marginTop:"0.5rem", fontSize:"0.75rem", color:"var(--success)", textAlign:"center", fontWeight:600 }}>
+                  ✅ Fields auto-filled from receipt
+                </p>
+              )}
             </div>
           )}
         </div>

@@ -1,19 +1,41 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import api from "../utils/api";
-import WardenAI from "../components/WardenAI";
+import SmartInsights from "../components/SmartInsights";
 
 const CHART_COLORS = ["#6366f1","#22c55e","#f59e0b","#ef4444","#ec4899","#06b6d4"];
 const STATUS_COLORS = { approved:"#22c55e", rejected:"#ef4444", pending:"#f59e0b", draft:"#6b7280" };
 
-const StatCard = ({ label, value, color, icon }) => (
-  <div className="stat-card" style={{ borderLeft: `4px solid ${color}` }}>
-    <div className="stat-icon" style={{ color }}>{icon}</div>
-    <div className="stat-value">{value}</div>
-    <div className="stat-label">{label}</div>
-  </div>
-);
+/* ── Animated count-up stat card ─────────── */
+function StatCard({ label, value, color, icon, prefix = "" }) {
+  const [display, setDisplay] = useState(0);
+  const frameRef = useRef();
+  useEffect(() => {
+    const target = Number(value) || 0;
+    const duration = 800;
+    const start = performance.now();
+    const animate = (now) => {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(Math.round(eased * target));
+      if (progress < 1) frameRef.current = requestAnimationFrame(animate);
+    };
+    frameRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frameRef.current);
+  }, [value]);
+
+  return (
+    <div className="stat-card" style={{ borderLeft: `3px solid ${color}` }}>
+      <div className="stat-icon" style={{ color }}>{icon}</div>
+      <div className="stat-value" style={{ color: "var(--text-primary)" }}>
+        {prefix}{display.toLocaleString()}
+      </div>
+      <div className="stat-label">{label}</div>
+    </div>
+  );
+}
 
 function DonutChart({ data }) {
   const total = data.reduce((s, d) => s + d.value, 0);
@@ -25,22 +47,28 @@ function DonutChart({ data }) {
     cum += pct; return s;
   });
   return (
-    <div style={{ display:"flex", alignItems:"center", gap:"1.25rem", flexWrap:"wrap" }}>
-      <svg width={100} height={100} viewBox="0 0 100 100">
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border)" strokeWidth={12}/>
-        {segs.map(s => s.pct > 0 && (
-          <circle key={s.i} cx={cx} cy={cy} r={r} fill="none"
-            stroke={CHART_COLORS[s.i % CHART_COLORS.length]} strokeWidth={12}
-            strokeDasharray={`${s.dash} ${circ}`}
-            style={{ transform:`rotate(${s.rotation-90}deg)`, transformOrigin:`${cx}px ${cy}px`, transition:"all 0.4s" }}/>
-        ))}
-      </svg>
-      <div style={{ display:"flex", flexDirection:"column", gap:"0.35rem" }}>
+    <div style={{ display:"flex", alignItems:"center", gap:"1.5rem", flexWrap:"wrap" }}>
+      <div style={{ position:"relative" }}>
+        <svg width={110} height={110} viewBox="0 0 100 100">
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border)" strokeWidth={13}/>
+          {segs.map(s => s.pct > 0 && (
+            <circle key={s.i} cx={cx} cy={cy} r={r} fill="none"
+              stroke={CHART_COLORS[s.i % CHART_COLORS.length]} strokeWidth={13}
+              strokeDasharray={`${s.dash} ${circ}`}
+              strokeLinecap="round"
+              style={{ transform:`rotate(${s.rotation-90}deg)`, transformOrigin:`${cx}px ${cy}px`, transition:"all 0.6s ease" }}/>
+          ))}
+        </svg>
+        <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1rem", fontWeight:700, color:"var(--text-primary)" }}>
+          {data.length}
+        </div>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:"0.4rem", flex:1 }}>
         {segs.map(s => (
-          <div key={s.i} style={{ display:"flex", alignItems:"center", gap:"0.5rem", fontSize:"0.78rem" }}>
+          <div key={s.i} style={{ display:"flex", alignItems:"center", gap:"0.5rem", fontSize:"0.8rem" }}>
             <div style={{ width:8, height:8, borderRadius:2, background:CHART_COLORS[s.i%CHART_COLORS.length], flexShrink:0 }}/>
-            <span style={{ color:"var(--text-secondary)" }}>{s.label}</span>
-            <span style={{ color:"var(--text-muted)", marginLeft:"auto", paddingLeft:"0.5rem" }}>{Math.round(s.pct*100)}%</span>
+            <span style={{ color:"var(--text-secondary)", flex:1 }}>{s.label}</span>
+            <span style={{ color:"var(--text-muted)", fontWeight:600 }}>{Math.round(s.pct*100)}%</span>
           </div>
         ))}
       </div>
@@ -52,11 +80,17 @@ function BarChart({ data }) {
   if (!data.length) return <p style={{color:"var(--text-muted)",fontSize:"0.85rem"}}>No data yet.</p>;
   const max = Math.max(...data.map(d => d.value), 1);
   return (
-    <div style={{ display:"flex", alignItems:"flex-end", gap:"0.75rem", height:100, padding:"0 0.5rem", justifyContent:"center" }}>
+    <div style={{ display:"flex", alignItems:"flex-end", gap:"0.75rem", height:110, padding:"0 0.5rem", justifyContent:"center" }}>
       {data.map((d, i) => (
-        <div key={i} style={{ width:48, flexShrink:0, display:"flex", flexDirection:"column", alignItems:"center", gap:"0.3rem" }}>
-          <div style={{ fontSize:"0.65rem", color:"var(--text-muted)" }}>₹{(d.value/1000).toFixed(1)}k</div>
-          <div style={{ width:"100%", height:Math.max(Math.round((d.value/max)*72),4), background:CHART_COLORS[i%CHART_COLORS.length], borderRadius:"4px 4px 0 0", transition:"height 0.4s" }}/>
+        <div key={i} style={{ flex:1, maxWidth:60, display:"flex", flexDirection:"column", alignItems:"center", gap:"0.3rem" }}>
+          <div style={{ fontSize:"0.65rem", color:"var(--text-muted)", fontWeight:600 }}>₹{(d.value/1000).toFixed(1)}k</div>
+          <div style={{
+            width:"100%",
+            height:Math.max(Math.round((d.value/max)*80),4),
+            background:`linear-gradient(180deg, ${CHART_COLORS[i%CHART_COLORS.length]}, ${CHART_COLORS[i%CHART_COLORS.length]}88)`,
+            borderRadius:"5px 5px 0 0",
+            transition:"height 0.6s cubic-bezier(0.34,1.56,0.64,1)"
+          }}/>
           <div style={{ fontSize:"0.62rem", color:"var(--text-muted)", textAlign:"center", whiteSpace:"nowrap" }}>{d.label}</div>
         </div>
       ))}
@@ -115,13 +149,20 @@ export default function Dashboard() {
     return Object.entries(map).map(([label,value])=>({label,value})).slice(-5);
   }, [expenses]);
 
-  if (loading) return <div className="page-loading">Loading...</div>;
+  if (loading) return (
+    <div className="page-loading">
+      <div className="spinner"/>
+      <span>Loading your dashboard...</span>
+    </div>
+  );
 
   return (
     <div className="page">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Welcome back, {user?.name?.split(" ")[0]} 👋</h1>
+          <h1 className="page-title">
+            Welcome back, {user?.name?.split(" ")[0]} 👋
+          </h1>
           <p className="page-subtitle">
             {user?.role==="employee" && "Track and manage your expense claims"}
             {user?.role==="manager" && "Review and approve your team's expenses"}
@@ -129,10 +170,13 @@ export default function Dashboard() {
           </p>
         </div>
         {(user?.role==="employee"||user?.role==="admin") && (
-          <button className="btn btn-primary" onClick={()=>navigate("/expenses/new")}>+ New Expense</button>
+          <button className="btn btn-primary" onClick={()=>navigate("/expenses/new")}>
+            ＋ New Expense
+          </button>
         )}
       </div>
 
+      {/* Stats — employee / admin */}
       {(user?.role==="employee"||user?.role==="admin") && (
         <div className="stats-grid">
           <StatCard label="Total Submitted" value={total}    color="#6366f1" icon="📋"/>
@@ -152,7 +196,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── Charts ── */}
+      {/* Charts */}
       {expenses.length > 0 && categoryData.length > 0 && (
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"1rem", margin:"1.5rem 0" }}>
           <div className="card">
@@ -166,20 +210,21 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* WardenAI — admin only */}
+      {/* SmartInsights — admin only */}
       {user?.role==="admin" && (
-        <WardenAI
-          companyName={user?.company_name || "Your Company"}
+        <SmartInsights
+          expenses={expenses}
+          approvals={approvals}
           currency={user?.company_currency || user?.currency || "INR"}
         />
       )}
 
       {/* Recent expenses */}
       {expenses.length > 0 && (
-        <div className="card" style={{ marginTop:"1rem" }}>
+        <div className="card" style={{ marginTop:"1.5rem" }}>
           <div className="card-header">
             <h2 className="card-title">Recent Expenses</h2>
-            <button className="btn btn-ghost" onClick={()=>navigate("/expenses")}>View all →</button>
+            <button className="btn btn-ghost btn-sm" onClick={()=>navigate("/expenses")}>View all →</button>
           </div>
           <table className="table">
             <thead><tr><th>Description</th><th>Category</th><th>Amount</th><th>Date</th><th>Status</th></tr></thead>
@@ -202,8 +247,8 @@ export default function Dashboard() {
       {(user?.role==="manager"||user?.role==="admin") && approvals.length > 0 && (
         <div className="card" style={{ marginTop:"1.5rem" }}>
           <div className="card-header">
-            <h2 className="card-title">Pending Approvals</h2>
-            <button className="btn btn-ghost" onClick={()=>navigate("/approvals")}>View all →</button>
+            <h2 className="card-title">⏳ Pending Approvals</h2>
+            <button className="btn btn-ghost btn-sm" onClick={()=>navigate("/approvals")}>Review all →</button>
           </div>
           <table className="table">
             <thead><tr><th>Employee</th><th>Description</th><th>Amount</th><th>Date</th></tr></thead>

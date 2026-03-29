@@ -32,17 +32,17 @@ export default function Login() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-logo">
-          <div className="brand-icon">₹</div>
+          <div className="brand-icon">RX</div>
           <div>
             <div className="brand-name">ReimburseX</div>
             <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
-              Expense Management
+              Smart Expense Management
             </div>
           </div>
         </div>
 
         <div>
-          <div className="auth-title">Welcome back</div>
+          <div className="auth-title">Welcome back 👋</div>
           <div className="auth-sub">Sign in to your account to continue</div>
         </div>
 

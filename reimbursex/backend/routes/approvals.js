@@ -30,6 +30,34 @@ router.get("/pending", requireRole("manager", "admin"), async (req, res) => {
   }
 });
 
+// GET /api/approvals/history — past approval decisions for this company
+router.get("/history", requireRole("manager", "admin"), async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT aa.id, aa.expense_id, aa.status, aa.comment, aa.acted_at, aa.created_at,
+              e.amount, e.currency, e.converted_amount, e.company_currency,
+              e.category, e.description, e.expense_date,
+              u.name AS employee_name, u.email AS employee_email,
+              a.name AS approver_name
+       FROM approval_actions aa
+       JOIN expenses e ON aa.expense_id = e.id
+       JOIN users u ON e.employee_id = u.id
+       JOIN users a ON aa.approver_id = a.id
+       WHERE aa.status IN ('approved','rejected')
+         AND e.company_id = ?
+       ORDER BY COALESCE(aa.acted_at, aa.created_at) DESC
+       LIMIT 100`,
+      [req.user.company_id]
+    );
+    res.json({ history: rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch approval history" });
+  }
+});
+
+
+
 // Core approval engine
 async function processApproval(conn, actionId, approverId, action, comment, companyId) {
   // Fetch the action
